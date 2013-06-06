@@ -5,7 +5,7 @@
  * @author Rodrigo Dias <rodrigo.dias@serpro.gov.br>
  */
 
-require('Connection.class.php');
+require('Database.class.php');
 
 // Note: if, when running from command line, you're having output messages like:
 //  "PHP Deprecated: Comments starting with '#' are deprecated (...)"
@@ -27,13 +27,13 @@ function ExitError($msg)
 	exit($msg."\n");   // halt script
 }
 
-function CalcStatusByChildrenWeight($dbh, $serviceId, $sumWeight, $depth=0)
+function CalcStatusByChildrenWeight(Database $db, $serviceId, $sumWeight, $depth=0)
 {
 	// Returned status codes are:
 	// 0:normal      3:average
 	// 1:information 4:major
 	// 2:alert       5:critical
-	$stmt = Connection::Query($dbh, '
+	$stmt = $db->query('
 		SELECT *
 		FROM service_threshold
 		WHERE idservice = ?
@@ -51,14 +51,14 @@ function CalcStatusByChildrenWeight($dbh, $serviceId, $sumWeight, $depth=0)
 	return $status;
 }
 
-function GetWeightOfStatus($dbh, $serviceId, $serviceStatus, $depth=0)
+function GetWeightOfStatus(Database $db, $serviceId, $serviceStatus, $depth=0)
 {
 	// What's the weight of the given status?
 	// Status codes ($serviceStatus parameter) are:
 	// 0:normal      3:average
 	// 1:information 4:major
 	// 2:alert       5:critical
-	$stmt = Connection::Query($dbh, '
+	$stmt = $db->query('
 		SELECT *
 		FROM service_weight
 		WHERE idservice = ?
@@ -73,11 +73,11 @@ function GetWeightOfStatus($dbh, $serviceId, $serviceStatus, $depth=0)
 	return $weight;
 }
 
-function ProcessNode($dbh, $serviceId, $serviceName, $serviceStatus, $depth=0)
+function ProcessNode(Database $db, $serviceId, $serviceName, $serviceStatus, $depth=0)
 {
 	Debug("$serviceId ($serviceName) on ProcessNode.", $depth);
 
-	$stmt = Connection::Query($dbh, '
+	$stmt = $db->query('
 		SELECT sl.servicedownid AS serviceid, s.name, s.status
 		FROM services s
 		INNER JOIN services_links sl ON sl.servicedownid = s.serviceid
@@ -87,30 +87,30 @@ function ProcessNode($dbh, $serviceId, $serviceName, $serviceStatus, $depth=0)
 	$weight = 0.0;
 	if($row = $stmt->fetch(PDO::FETCH_ASSOC)) { // we have children services
 		do {
-			$weight += ProcessNode($dbh, $row['serviceid'], $row['name'], $row['status'], $depth + 1);
+			$weight += ProcessNode($db, $row['serviceid'], $row['name'], $row['status'], $depth + 1);
 		} while($row = $stmt->fetch(PDO::FETCH_ASSOC));
-		$newStatus = CalcStatusByChildrenWeight($dbh, $serviceId, $weight, $depth);
+		$newStatus = CalcStatusByChildrenWeight($db, $serviceId, $weight, $depth);
 		if($serviceStatus != $newStatus) { // our status has changed due to children weight propagation
-			Connection::Query($dbh, '
+			$db->query($db, '
 				UPDATE services
 				SET status = ?
 				WHERE serviceid = ?
 			', $newStatus, $serviceId);
 		}
-		$weight = GetWeightOfStatus($dbh, $serviceId, $newStatus, $depth);
+		$weight = GetWeightOfStatus($db, $serviceId, $newStatus, $depth);
 	} else { // we're a leaf node
 		Debug("$serviceId is a leaf node.", $depth);
-		$weight = GetWeightOfStatus($dbh, $serviceId, $serviceStatus, $depth);
+		$weight = GetWeightOfStatus($db, $serviceId, $serviceStatus, $depth);
 	}
 	return $weight;
 }
 
-function UpdateServiceTree($dbh)
+function UpdateServiceTree(Database $db)
 {
 	Debug('Updating tree.');
 
 	// Retrieve the root service nodes.
-	$stmt = Connection::Query($dbh, '
+	$stmt = $db->query('
 		SELECT DISTINCT(serviceid), name, status
 		FROM services AS s
 		INNER JOIN services_links AS l ON s.serviceid = l.serviceupid
@@ -122,7 +122,7 @@ function UpdateServiceTree($dbh)
 
 	if($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 		do {
-			ProcessNode($dbh, $row['serviceid'], $row['name'], $row['status']); // process each root node
+			ProcessNode($db, $row['serviceid'], $row['name'], $row['status']); // process each root node
 		} while($row = $stmt->fetch(PDO::FETCH_ASSOC));
 	} else {
 		ExitError('ERROR: No root nodes were found.');
@@ -133,5 +133,6 @@ function UpdateServiceTree($dbh)
 // Start processing.
 //
 
-$dbh = Connection::GetDatabase();
-UpdateServiceTree($dbh);
+$db = new Database();
+$db->connect();
+UpdateServiceTree($db);

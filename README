@@ -1,0 +1,15 @@
+Scripts para manipulação da árvore gráfica
+-------------------------------------------
+
+> trapdaemon.php
+Script de propagação do peso da árvore gráfica.
+Rode na linha de comando:
+$ php trapdaemon.php
+
+> export-import.php
+Script para exportação e importação da estrutura da árvore gráfica. Para
+ importação, será pedido um usuário e senha do Zabbix; este usuário deve ter
+ permissão para usar a API do Zabbix.
+Rode na linha de comando:
+$ php export-import.php -e /var/tmp/arquivo.txt
+$ php export-import.php -i /var/tmp/arquivo.txt

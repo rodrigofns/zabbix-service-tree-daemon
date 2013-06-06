@@ -129,5 +129,9 @@ function UpdateServiceTree($dbh)
 	}
 }
 
+//
+// Start processing.
+//
+
 $dbh = Connection::GetDatabase();
 UpdateServiceTree($dbh);

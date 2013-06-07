@@ -77,7 +77,7 @@ class Database
 			WHERE nodeid = ?
 				AND table_name = ?
 				AND field_name = ?
-		', $nodeId, $tableName, $fieldName);
+		', $nodeId, $tableName, $fieldName); // http://fossies.org/dox/zabbix-2.0.6/DB_8php_source.html
 		if($row = $stmt->fetch(PDO::FETCH_NUM)) {
 			$yourId = $row[0];
 			$this->query('

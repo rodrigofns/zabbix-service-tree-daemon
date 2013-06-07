@@ -5,7 +5,6 @@
  */
 
 require('Database.class.php');
-require('Zabbix.class.php');
 
 // Note: if, when running from command line, you're having output messages like:
 //  "PHP Deprecated: Comments starting with '#' are deprecated (...)"
@@ -19,23 +18,6 @@ function Debug($msg, $depth=0)
 	global $debug;
 	if($debug)
 		echo date('Y-m-d H:i:s').str_repeat('  ', $depth).' '.$msg."\n";
-}
-
-function PromptUsrPwd()
-{
-	fwrite(STDOUT, 'Enter Zabbix user name: ');
-	$usr = trim(fgets(STDIN));
-	$command = "/usr/bin/env bash -c 'echo OK'";
-	if(rtrim(shell_exec($command)) !== 'OK') {
-		die("Can't invoke bash.\n");
-		return;
-	}
-	$command = "/usr/bin/env bash -c 'read -s -p \"".
-		addslashes("Password for $usr:").
-		"\" mypassword && echo \$mypassword'";
-	$pwd = rtrim(shell_exec($command));
-	echo "\n";
-	return (object)array('usr' => $usr, 'pwd' => $pwd);
 }
 
 class Export
@@ -202,46 +184,58 @@ class Import
 	}
 
 	private static $addedNodes = array();
-	private static function _Rollback(Database $db, Zabbix $zabbix)
+	private static function _Rollback(Database $db)
 	{
 		echo "Oops, algo errado, fazendo rollback...\n";
 		try {
-			foreach(self::$addedNodes as $node) {
-				$db->query('DELETE FROM service_threshold WHERE idservice = ?', $node);
-				Debug("Threshold of $node removed.");
-				$db->query('DELETE FROM service_weight WHERE idservice = ?', $node);
-				Debug("Weight of $node removed.");
-				$db->query('DELETE FROM services_links WHERE serviceupid = ? OR servicedownid = ?', $node, $node);
-				Debug("Relationships of $node removed.");
+			foreach(self::$addedNodes as $sid) {
+				$db->query('DELETE FROM service_threshold WHERE idservice = ?', $sid);
+				$db->query('DELETE FROM service_weight WHERE idservice = ?', $sid);
+				$db->query('DELETE FROM services_links WHERE serviceupid = ? OR servicedownid = ?', $sid, $sid);
+				$db->query('DELETE FROM services_times WHERE serviceid = ?', $sid);
+				$db->query('DELETE FROM services WHERE serviceid = ?', $sid);
+				Debug("Service $sid deleted.");
 			}
-			$zabbix->pedir('service.delete', self::$addedNodes);
-			Debug("Service $node deleted.");
 		} catch(Exception $e) {
 			die('ERROR: '.$e->getMessage()."\n");
 		}
 	}
 
-	private static function _ImportNode(Database $db, Zabbix $zabbix, $node, $depth=0)
+	private static function _ImportNode(Database $db, $service, $depth=0)
 	{
-		Debug("$node->name on ImportNode.", $depth);
+		Debug("$service->name on ImportNode.", $depth);
+
+		// Try to figure out what's the distributed node ID. Not sure about this, really...
+		try {
+			$stmt = $db->query('SELECT MIN(nodeid) FROM ids WHERE nodeid > 9'); // usually returns 999
+		} catch(Exception $e) {
+			self::_Rollback($db);
+			die('ERROR: '.$e->getMessage()."\n");
+		}
+		if($row = $stmt->fetch(PDO::FETCH_NUM)) {
+			$prefixId = $row[0];
+		} else {
+			self::_Rollback($db);
+			die("ERROR: failed to retrieve distributed node prefix.\n");
+		}
 
 		// Create the service itself.
 		try {
-			$res = $zabbix->pedir('service.create', array(
-				'name'      => $node->name,
-				'status'    => $node->status,
-				'algorithm' => $node->algorithm,
-				'showsla'   => $node->showsla,
-				'goodsla'   => $node->goodsla,
-				'sortorder' => $node->sortorder
-			));
+			$serviceId = $db->getNextId($prefixId, 'services', 'serviceid');
+			$db->query('
+				INSERT INTO services
+					(serviceid, name, status, algorithm, showsla, goodsla, sortorder)
+				VALUES
+					(?, ?, ?, ?, ?, ?, ?)
+			', $serviceId,
+				$service->name, $service->status, $service->algorithm,
+				$service->showsla, $service->goodsla, $service->sortorder);
 		} catch(Exception $e) {
-			self::_Rollback($db, $zabbix);
+			self::_Rollback($db);
 			die('ERROR: '.$e->getMessage()."\n");
 		}
-		$serviceId = $res->serviceids[0];
 		self::$addedNodes[] = $serviceId; // append to our rollback array
-		Debug("Node $node->name created as $serviceId.", $depth);
+		Debug("Node $service->name created as $serviceId.", $depth);
 
 		// Insert threshold and weight values.
 		try {
@@ -253,8 +247,8 @@ class Import
 				VALUES
 					(?, ?, ?, ?, ?, ?, ?)
 			', $serviceId,
-					$node->threshold->normal, $node->threshold->information, $node->threshold->alert,
-					$node->threshold->average, $node->threshold->major, $node->threshold->critical);
+					$service->threshold->normal, $service->threshold->information, $service->threshold->alert,
+					$service->threshold->average, $service->threshold->major, $service->threshold->critical);
 
 			$db->query('
 				INSERT INTO service_weight
@@ -264,16 +258,16 @@ class Import
 				VALUES
 					(?, ?, ?, ?, ?, ?, ?)
 			', $serviceId,
-					$node->weight->normal, $node->weight->information, $node->weight->alert,
-					$node->weight->average, $node->weight->major, $node->weight->critical);
+					$service->weight->normal, $service->weight->information, $service->weight->alert,
+					$service->weight->average, $service->weight->major, $service->weight->critical);
 		} catch(Exception $e) {
-			self::_Rollback($db, $zabbix);
+			self::_Rollback($db);
 			die('ERROR: '.$e->getMessage()."\n");
 		}
 
 		// Create each child service and its relationship.
-		foreach($node->children as $child) {
-			$childId = self::_ImportNode($db, $zabbix, $child, $depth + 1); // import each child
+		foreach($service->children as $child) {
+			$childId = self::_ImportNode($db, $child, $depth + 1); // import each child
 			Debug("Making $serviceId parent of $childId.", $depth);
 			try {
 				$linkId = $db->getNextId(substr($serviceId, 0, 3), 'services_links', 'linkid');
@@ -284,7 +278,7 @@ class Import
 						(?, ?, ?, 0)
 				', $linkId, $serviceId, $childId); // create parent-child relationship
 			} catch(Exception $e) {
-				self::_Rollback($db, $zabbix);
+				self::_Rollback($db);
 				die('ERROR: '.$e->getMessage()."\n");
 			}
 		}
@@ -292,15 +286,15 @@ class Import
 		return $serviceId; // ID of newly created service
 	}
 
-	public static function ImportServiceTree(Database $db, Zabbix $zabbix, $filename)
+	public static function ImportServiceTree(Database $db, $filename)
 	{
 		self::_CheckNewTables($db);
 		$blob = @file_get_contents($filename);
 		if($blob === false)
 			die("ERROR: could not read from $filename .\n");
 		$nodes = json_decode($blob);
-		foreach($nodes as $node)
-			self::_ImportNode($db, $zabbix, $node); // process each root nodes
+		foreach($nodes as $service)
+			self::_ImportNode($db, $service); // process each root nodes
 	}
 }
 
@@ -328,15 +322,7 @@ if($argv[1] == '-e') { // export
 	if(@file_put_contents($argv[2], $json, LOCK_EX) === false)
 		die("ERROR: could not write to file, file_put_contents() failed.\n");
 } else if($argv[1] == '-i') { // import
-	$credentials = PromptUsrPwd();
-	include(dirname(__FILE__).'/__conf.php'); // read from our conf file
-	$zab = new Zabbix($ZABBIX_API);
-	try {
-		$zab->autenticar($credentials->usr, $credentials->pwd);
-	} catch(Exception $e) {
-		die('ERROR: '.$e->getMessage()."\n");
-	}
-	echo 'Zabbix hash: '.$zab->hash()."\n";
-	Import::ImportServiceTree($db, $zab, $argv[2]);
+	echo "Importando arvore de $argv[2] ...\n";
+	Import::ImportServiceTree($db, $argv[2]);
 }
 echo "Concluido.\n";

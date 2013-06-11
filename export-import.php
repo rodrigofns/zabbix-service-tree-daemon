@@ -75,7 +75,9 @@ class Export
 				'children'  => array()
 			);
 		} else {
-			die("ERROR: Service $serviceId has no entry on service_weight table.\n");
+			$stmt = $db->query('SELECT name FROM services WHERE serviceid = ?', $serviceId);
+			$row = $stmt->fetch(PDO::FETCH_NUM);
+			die("ERROR: Service \"$row[0]\" ($serviceId) has no entry on service_weight table.\n");
 		}
 
 		// Retrieve all child services of current service node.
@@ -201,25 +203,33 @@ class Import
 		}
 	}
 
-	private static function _ImportNode(Database $db, $service, $depth=0)
+	private static function _GetDistributedNodePrefix($db)
 	{
-		Debug("$service->name on ImportNode.", $depth);
-
-		// Try to figure out what's the distributed node ID. Not sure about this, really...
 		try {
-			$stmt = $db->query('SELECT MIN(nodeid) FROM ids WHERE nodeid > 9'); // usually returns 999
+			$stmt = $db->query("
+				SELECT MIN(nodeid)
+				FROM ids
+				WHERE table_name = 'services'
+					AND field_name = 'serviceid'
+			");
+			if($row = $stmt->fetch(PDO::FETCH_NUM)) {
+				return $row[0]; // 0 to 999
+			} else {
+				self::_Rollback($db);
+				die("ERROR: failed to retrieve distributed node prefix.\n");
+			}
 		} catch(Exception $e) {
 			self::_Rollback($db);
 			die('ERROR: '.$e->getMessage()."\n");
 		}
-		if($row = $stmt->fetch(PDO::FETCH_NUM)) {
-			$prefixId = $row[0];
-		} else {
-			self::_Rollback($db);
-			die("ERROR: failed to retrieve distributed node prefix.\n");
-		}
+	}
+
+	private static function _ImportNode(Database $db, $service, $depth=0)
+	{
+		Debug("$service->name on ImportNode.", $depth);
 
 		// Create the service itself.
+		$prefixId = self::_GetDistributedNodePrefix($db);
 		try {
 			$serviceId = $db->getNextId($prefixId, 'services', 'serviceid');
 			$db->query('

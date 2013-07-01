@@ -91,7 +91,7 @@ function ProcessNode(Database $db, $serviceId, $serviceName, $serviceStatus, $de
 		} while($row = $stmt->fetch(PDO::FETCH_ASSOC));
 		$newStatus = CalcStatusByChildrenWeight($db, $serviceId, $weight, $depth);
 		if($serviceStatus != $newStatus) { // our status has changed due to children weight propagation
-			$db->query($db, '
+			$db->query('
 				UPDATE services
 				SET status = ?
 				WHERE serviceid = ?

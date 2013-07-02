@@ -1,3 +1,17 @@
+Scripts to manipulate the graph tree
+-------------------------------------
+
+> trapdaemon.php
+Propagates the weight along the tree.
+Run on the command line:
+$ php trapdaemon.php
+
+> export-import.php
+Exports/imports the tree graph structure. Use with care!
+Run on the command line:
+$ php export-import.php
+
+
 Scripts para manipulação da árvore gráfica
 -------------------------------------------
 

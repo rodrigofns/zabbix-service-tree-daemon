@@ -15,8 +15,8 @@ class Database
 	public function connect()
 	{
 		$dbConf = self::_LoadZabbixConf();
-		$pdoStr = sprintf('%s:host=%s;dbname=%s',
-		strtolower($dbConf['TYPE']), $dbConf['SERVER'], $dbConf['DATABASE']);
+		$dsnPrefix = ($dbConf['TYPE'] === 'POSTGRESQL') ? 'pgsql' : strtolower($dbConf['TYPE']);
+		$pdoStr = sprintf('%s:host=%s;dbname=%s', $dsnPrefix, $dbConf['SERVER'], $dbConf['DATABASE']);
 		try {
 			$this->pdo = new PDO($pdoStr, $dbConf['USER'], $dbConf['PASSWORD']);
 			$this->pdo->exec('SET NAMES utf8');

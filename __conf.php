@@ -1,5 +1,9 @@
 <?php
 
+// This constant appears undefined in some Zabbix instances, so let's use the hammer.
+if(!defined('IMAGE_FORMAT_PNG'))
+	define('IMAGE_FORMAT_PNG', 'PNG');
+
 // The whole system loads the settings from the Zabbix
 // configurations indicated below.
 

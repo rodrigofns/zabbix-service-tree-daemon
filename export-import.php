@@ -188,7 +188,7 @@ class Import
 	private static $addedNodes = array();
 	private static function _Rollback(Database $db)
 	{
-		echo "Oops, algo errado, fazendo rollback...\n";
+		echo "Oops, something wrong, let's rollback...\n";
 		try {
 			foreach(self::$addedNodes as $sid) {
 				$db->query('DELETE FROM service_threshold WHERE idservice = ?', $sid);
@@ -315,11 +315,11 @@ class Import
 
 if(!isset($argv[2])) {
 	die("*\n".
-		"* COMO USAR ESTE SCRIPT:\n".
-		"* Exportar a arvore para um arquivo:\n".
-		"*   php export-import.php -e /var/tmp/arquivo.txt\n".
-		"* Importar a arvore de um arquivo:\n".
-		"*   php export-import.php -i /var/tmp/arquivo.txt\n".
+		"* HOW TO USE THIS SCRIPT:\n".
+		"* Export tree structure to a file:\n".
+		"*   php export-import.php -e /var/tmp/file.txt\n".
+		"* Import tree from a file:\n".
+		"*   php export-import.php -i /var/tmp/file.txt\n".
 		"*\n");
 }
 
@@ -327,12 +327,12 @@ $db = new Database();
 $db->connect();
 
 if($argv[1] == '-e') { // export
-	echo "Exportando arvore para $argv[2] ...\n";
+	echo "Exporting tree to $argv[2] ...\n";
 	$json = json_encode(Export::ExportServiceTree($db));
 	if(@file_put_contents($argv[2], $json, LOCK_EX) === false)
 		die("ERROR: could not write to file, file_put_contents() failed.\n");
 } else if($argv[1] == '-i') { // import
-	echo "Importando arvore de $argv[2] ...\n";
+	echo "Importing tree from $argv[2] ...\n";
 	Import::ImportServiceTree($db, $argv[2]);
 }
-echo "Concluido.\n";
+echo "Finished.\n";

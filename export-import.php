@@ -213,7 +213,7 @@ class Import
 					AND field_name = 'serviceid'
 			");
 			if($row = $stmt->fetch(PDO::FETCH_NUM)) {
-				return $row[0]; // 0 to 999
+				return ($row[0] === null) ? 0 : $row[0]; // 0 to 999
 			} else {
 				self::_Rollback($db);
 				die("ERROR: failed to retrieve distributed node prefix.\n");
@@ -228,15 +228,23 @@ class Import
 	{
 		Debug("$service->name on ImportNode.", $depth);
 
-		// Create the service itself.
-		$prefixId = self::_GetDistributedNodePrefix($db);
+		$prefixId = self::_GetDistributedNodePrefix($db); // 0 to 999
 		try {
-			$serviceId = $db->getNextId($prefixId, 'services', 'serviceid');
+			$serviceId = $db->getNextId($prefixId, 'services', 'serviceid'); // ID of new service to be inserted
+		} catch(Exception $e) {
+			Debug("Entry for serviceid doesn't exist on ids, will be manually created.");
+			$db->query('INSERT INTO ids (nodeid, table_name, field_name, nextid) VALUES (?, ?, ?, ?)',
+				$prefixId, 'services', 'serviceid', 1);
+			$db->query('INSERT INTO ids (nodeid, table_name, field_name, nextid) VALUES (?, ?, ?, ?)',
+				$prefixId, 'service_alarms', 'servicealarmid', 1);
+			$serviceId = 1;
+		}
+
+		// Create the service itself.
+		try {
 			$db->query('
-				INSERT INTO services
-					(serviceid, name, status, algorithm, showsla, goodsla, sortorder)
-				VALUES
-					(?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO services (serviceid, name, status, algorithm, showsla, goodsla, sortorder)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 			', $serviceId,
 				$service->name, $service->status, $service->algorithm,
 				$service->showsla, $service->goodsla, $service->sortorder);
@@ -279,13 +287,20 @@ class Import
 		foreach($service->children as $child) {
 			$childId = self::_ImportNode($db, $child, $depth + 1); // import each child
 			Debug("Making $serviceId parent of $childId.", $depth);
+
 			try {
-				$linkId = $db->getNextId(substr($serviceId, 0, 3), 'services_links', 'linkid');
+				$linkId = $db->getNextId($prefixId, 'services_links', 'linkid');
+			} catch(Exception $e) {
+				Debug("Entry for linkid doesn't exist on ids, will be manually created.");
+				$db->query('INSERT INTO ids (nodeid, table_name, field_name, nextid) VALUES (?, ?, ?, ?)',
+					$prefixId, 'services_links', 'linkid', 1);
+				$linkId = 1;
+			}
+
+			try {
 				$db->query('
-					INSERT INTO services_links
-						(linkid, serviceupid, servicedownid, soft)
-					VALUES
-						(?, ?, ?, 0)
+					INSERT INTO services_links (linkid, serviceupid, servicedownid, soft)
+					VALUES (?, ?, ?, 0)
 				', $linkId, $serviceId, $childId); // create parent-child relationship
 			} catch(Exception $e) {
 				self::_Rollback($db);
